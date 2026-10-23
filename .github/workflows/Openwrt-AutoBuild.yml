@@ -61,6 +61,9 @@ jobs:
     - name: Load Settings.ini
       run: |
         echo ${{matrix.target}}
+        # 双保险：这些文件一旦被 Windows 编辑器存成 CRLF，source 出来的变量会带 \r
+        # （git clone 会直接报 "Malformed input to a URL function"），make 也读不了 .config
+        find devices -type f \( -name '*.sh' -o -name '*.ini' -o -name '*.config' \) -exec sed -i 's/\r$//' {} +
         source "${{ github.workspace }}/devices/common/settings.ini"
         if [ -f "devices/${{matrix.target}}/settings.ini" ]; then
           source "${{ github.workspace }}/devices/${{matrix.target}}/settings.ini"
