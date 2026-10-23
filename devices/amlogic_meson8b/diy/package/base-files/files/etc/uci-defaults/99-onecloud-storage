@@ -1,0 +1,59 @@
+#!/bin/sh
+# /etc/uci-defaults/99-onecloud-storage
+#
+# 玩客云（Thunder OneCloud, 8G eMMC）首次启动存储初始化：
+#   1. 若 p3 存在且未格式化，格式化为 ext4（卷标 data）
+#   2. 写入 fstab，开机自动挂载到 /mnt/data
+#   3. 打印根分区剩余空间诊断（镜像被 shrink 过的情况一目了然）
+#
+# 本脚本只对 /dev/mmcblk1p3 做操作，绝不触碰 p1/p2，失败也只影响数据盘。
+
+LOG=/etc/onecloud-storage.log
+exec >>"$LOG" 2>&1
+
+DEV=/dev/mmcblk1p3
+MNT=/mnt/data
+DATE="$(date '+%Y-%m-%d %H:%M:%S')"
+
+echo "=================================================="
+echo "[$DATE] onecloud storage setup start"
+
+mkdir -p "$MNT"
+
+if [ ! -b "$DEV" ]; then
+	echo "p3 ($DEV) 不存在：镜像里没有声明数据分区，跳过。"
+	echo "rootfs: $(df -h / | tail -n1)"
+	exit 0
+fi
+
+if blkid "$DEV" >/dev/null 2>&1; then
+	echo "p3 已有文件系统: $(blkid "$DEV")"
+else
+	echo "p3 无文件系统，开始格式化 ext4 ..."
+	if mkfs.ext4 -F -L data -m 1 "$DEV"; then
+		echo "格式化完成。"
+	else
+		echo "格式化失败，放弃挂载（系统可正常使用，仅无数据盘）。"
+		exit 0
+	fi
+fi
+
+[ -f /etc/config/fstab ] || touch /etc/config/fstab
+uci -q delete fstab.data
+uci set fstab.data=mount
+uci set fstab.data.target="$MNT"
+uci set fstab.data.device="$DEV"
+uci set fstab.data.options='rw,noatime'
+uci set fstab.data.enabled='1'
+uci commit fstab
+echo "fstab 已写入：$DEV -> $MNT"
+
+[ -x /etc/init.d/fstab ] && /etc/init.d/fstab enable
+
+mount "$DEV" "$MNT" 2>/dev/null && echo "已挂载到 $MNT"
+
+echo "---- 存储概况 ----"
+df -h / "$MNT" 2>/dev/null
+echo "[$DATE] onecloud storage setup done"
+
+exit 0
